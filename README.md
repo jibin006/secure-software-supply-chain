@@ -1,9 +1,5 @@
-# secure-cicd-pipeline
-
-
-I built a custom Checkov check CKV_CUSTOM_S3_1 enforcing S3 lifecycle policy, it failed to load on first run because the external checks directory was missing __init__.py, I fixed it by adding the file to make the folder a Python package, the trade-off I accepted is inline suppression can bypass this check, and I monitor for suppression accumulation by scanning for checkov:skip comments in CI.
-
-
-I built a custom Checkov check CKV_CUSTOM_S3_1 enforcing S3 lifecycle policy, it broke because the check targeted lifecycle_rule inline attribute which does not exist in AWS provider v4+ — lifecycle is now a separate resource type, I fixed it by changing supported_resources to aws_s3_bucket_lifecycle_configuration and validating enabled rules within it, the trade-off I accepted is the check is now silent when the lifecycle resource is completely absent and I depend on CKV2_AWS_61 to catch that case, and I monitor for upstream Checkov rule behavior changes via pinned Checkov versions in CI.
-
-
+**What this build solves:** Enforces a pre-deployment security gate that evaluates the Terraform execution plan and blocks infrastructure changes that expose SSH (port 22) to 0.0.0.0/0, preventing insecure configurations from reaching production.
+**The decision I made:** Evaluate OPA policies against Terraform plan JSON not HCL and enforce them in CI with an explicit namespace so the gate reflects actual resolved resources, not static declarations.
+**What I explicitly rejected:** Checkov-only static scanning and default conftest package main behavior — both can silently miss violations due to unresolved values or namespace mismatch.
+**The trade-off I accepted:** Tight coupling to Terraform plan schema — if provider or Terraform version changes the plan JSON structure, the policy breaks silently unless a known-bad fixture catches it.
+**The Anthropic clause:** When the workload behind the security group is an LLM inference endpoint, a world-open port shifts the blast radius from infrastructure compromise to uncontrolled model interaction — attackers can abuse GPU resources, extract data via prompt injection, and bypass safety controls through normal-looking API calls without requiring deeper system access.
