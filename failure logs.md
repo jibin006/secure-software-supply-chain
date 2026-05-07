@@ -12,3 +12,6 @@ Wrong Rego path input.resource.aws_security_group[_] produced 0 tests, 0 failure
 
 
 Correct Rego policy produced 0 tests against valid plan JSON. Root cause: conftest only evaluates rules in package main by default — custom package namespaces like terraform.security are silently ignored without --namespace flag. The policy was correct, the data was correct, the gate was broken. If shipped without --namespace, this gate would never fire on any violation while showing 0 failures. Fix: either change package to main or always pass --namespace flag explicitly in CI.
+
+
+Committed 628MB Terraform provider binary to git history. Root cause: .gitignore was created after terraform init ran and after the first commit — files already tracked by git are not affected by .gitignore. Fix: git filter-branch to purge from history, force push. Learning: .gitignore must exist before terraform init. For any Terraform repo, the correct order is: create repo, add .gitignore with .terraform/ pattern, then run terraform init. Never the reverse.
