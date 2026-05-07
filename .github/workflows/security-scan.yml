@@ -1,4 +1,5 @@
-﻿name: Security Scan
+﻿# .github/workflows/security-scan.yml
+name: Security Scan
 
 on:
   pull_request:
@@ -12,10 +13,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run Checkov
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Checkov
+        run: pip install checkov
+
+      - name: Run Checkov with custom checks
         uses: bridgecrewio/checkov-action@master
         with:
           directory: terraform/
           framework: terraform
           output_format: cli
           soft_fail: false
+          external_checks_dirs: checkov_custom_checks
