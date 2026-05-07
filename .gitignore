@@ -1,9 +1,5 @@
-﻿.terraform/
+﻿**/.terraform/
+*.tfplan
 *.tfstate
-*.tfstate.*
-plan.tfplan
-plan.json
+*.tfstate.backup
 plan_raw.json
-__pycache__/
-*.pyc
-conftest.zip
