@@ -1,5 +1,9 @@
 **What this build solves:** Enforces a pre-deployment security gate that evaluates the Terraform execution plan and blocks infrastructure changes that expose SSH (port 22) to 0.0.0.0/0, preventing insecure configurations from reaching production.
+
 **The decision I made:** Evaluate OPA policies against Terraform plan JSON not HCL and enforce them in CI with an explicit namespace so the gate reflects actual resolved resources, not static declarations.
+
 **What I explicitly rejected:** Checkov-only static scanning and default conftest package main behavior — both can silently miss violations due to unresolved values or namespace mismatch.
+
 **The trade-off I accepted:** Tight coupling to Terraform plan schema — if provider or Terraform version changes the plan JSON structure, the policy breaks silently unless a known-bad fixture catches it.
+
 **The Anthropic clause:** When the workload behind the security group is an LLM inference endpoint, a world-open port shifts the blast radius from infrastructure compromise to uncontrolled model interaction — attackers can abuse GPU resources, extract data via prompt injection, and bypass safety controls through normal-looking API calls without requiring deeper system access.
