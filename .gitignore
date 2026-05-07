@@ -6,3 +6,4 @@ plan.json
 plan_raw.json
 __pycache__/
 *.pyc
+conftest.zip
