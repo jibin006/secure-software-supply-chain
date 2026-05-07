@@ -9,3 +9,6 @@ CKV_CUSTOM_S3_1 failed on compliant bucket. Root cause: check used lifecycle_rul
 
 
 Wrong Rego path input.resource.aws_security_group[_] produced 0 tests, 0 failures against a security group with 0.0.0.0/0 on port 22. Root cause: path does not exist in plan JSON — conftest found no matching data, evaluated no rules, and returned success. This is the silent pass failure mode. In production this gate would never fire on any security group misconfiguration while appearing to work correctly.
+
+
+Correct Rego policy produced 0 tests against valid plan JSON. Root cause: conftest only evaluates rules in package main by default — custom package namespaces like terraform.security are silently ignored without --namespace flag. The policy was correct, the data was correct, the gate was broken. If shipped without --namespace, this gate would never fire on any violation while showing 0 failures. Fix: either change package to main or always pass --namespace flag explicitly in CI.
