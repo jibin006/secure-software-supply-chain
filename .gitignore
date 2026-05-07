@@ -1,0 +1,8 @@
+﻿.terraform/
+*.tfstate
+*.tfstate.*
+plan.tfplan
+plan.json
+plan_raw.json
+__pycache__/
+*.pyc
