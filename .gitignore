@@ -3,3 +3,5 @@
 *.tfstate
 *.tfstate.backup
 plan_raw.json
+*.zip
+conftest*
