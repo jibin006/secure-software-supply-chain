@@ -193,3 +193,31 @@ Correct Rego policy produced 0 tests against valid plan JSON. Root cause: confte
 
 
 Committed 628MB Terraform provider binary to git history. Root cause: .gitignore was created after terraform init ran and after the first commit — files already tracked by git are not affected by .gitignore. Fix: git filter-branch to purge from history, force push. Learning: .gitignore must exist before terraform init. For any Terraform repo, the correct order is: create repo, add .gitignore with .terraform/ pattern, then run terraform init. Never the reverse.
+
+
+
+FAILURE LOG — 2026-05-09
+
+What broke:
+Lambda failed with AttributeError when trying to catch s3.exceptions.NoSuchPublicAccessBlockConfiguration during get_public_access_block call.
+
+What I expected to happen:
+When a bucket has no public access block, the SDK would raise a typed exception NoSuchPublicAccessBlockConfiguration that I could catch directly via s3.exceptions.
+
+What actually happened:
+The Lambda crashed because that exception class does not exist in botocore; the error was not caught and the evaluation logic failed before generating findings.
+
+Root cause:
+S3 get_public_access_block returns a generic ClientError with error code "NoSuchPublicAccessBlockConfiguration" instead of a modeled exception class, so botocore does not expose it under s3.exceptions.
+
+What assumption was wrong:
+I assumed all AWS API errors are exposed as typed exceptions in client.exceptions.*; in reality, many S3 errors are only surfaced as generic ClientError with string-based error codes.
+
+What I changed:
+Replaced the specific exception catch with botocore.exceptions.ClientError and added conditional logic to check e.response["Error"]["Code"] == "NoSuchPublicAccessBlockConfiguration".
+
+Trade-off or residual risk:
+String-based error handling is brittle—if AWS changes error codes or introduces variations, the detection logic may silently fail or misclassify conditions.
+
+What I monitor for:
+Add a test case with a bucket missing public access block that must always produce a finding; log and alert on any unexpected ClientError codes to detect API behavior drift early.
