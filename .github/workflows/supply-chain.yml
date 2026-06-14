@@ -57,6 +57,13 @@ jobs:
           echo "[BUILD] Image digest: ${{ steps.build.outputs.digest }}"
           echo "[BUILD] Digest pinning prevents tag mutation attacks"
 
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+         registry: ghcr.io
+         username: ${{ github.actor }}
+         password: ${{ secrets.GITHUB_TOKEN }}   
+
   generate-sbom:
     name: SBOM Generation
     runs-on: ubuntu-latest
