@@ -98,9 +98,10 @@ jobs:
           name: sbom
           path: sbom/
 
-      - name: Check SQLite Version
+      - name: Check SQLite Package
         run: |
-         grep -i sqlite sbom/sbom.cyclonedx.json | head -20    
+         jq '.components[] | select(.name | contains("sqlite"))' \
+          sbom/sbom.cyclonedx.json  
 
   vulnerability-scan:
     name: Vulnerability Scan and Gate
