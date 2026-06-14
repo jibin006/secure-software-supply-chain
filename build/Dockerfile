@@ -11,9 +11,7 @@ FROM python:3.12-slim@sha256:d764629ce0ddd8c71fd371e9901efb324a95789d2315a47db7e
 WORKDIR /app
 
 # OCI Labels for traceability
-LABEL org.opencontainers.image.source="https://github.com/yourorg/secure-software-supply-chain"
-LABEL org.opencontainers.image.revision="${GIT_COMMIT}"
-LABEL org.opencontainers.image.created="${BUILD_DATE}"
+LABEL org.opencontainers.image.source="https://github.com/jibin006/secure-software-supply-chain"
 LABEL org.opencontainers.image.title="supply-chain-demo"
 
 # Non-root user
