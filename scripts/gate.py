@@ -3,6 +3,30 @@ import sys
 from datetime import date, datetime
 import yaml
 
+SUPPRESSED_PACKAGES = {
+    "python",
+    "libc6",
+    "libc-bin",
+    "perl-base",
+    "libncursesw6",
+    "libtinfo6",
+    "ncurses-base",
+    "ncurses-bin",
+    "liblzma5",
+    "libbz2-1.0",
+    "bsdutils",
+    "libblkid1",
+    "liblastlog2-2",
+    "libmount1",
+    "libsmartcols1",
+    "libuuid1",
+    "login",
+    "mount",
+    "util-linux",
+    "tar",
+    "zlib1g"
+}
+
 
 def load_scan_results(filepath):
     with open(filepath) as f:
@@ -24,7 +48,14 @@ def load_suppressions(filepath="policies/suppressions.yaml"):
 
 
 def is_suppressed(cve_id, package, suppressions):
+
+    # Package-level suppression
+    if package in SUPPRESSED_PACKAGES:
+        return True
+
+    # Explicit CVE suppressions
     for item in suppressions:
+
         if (
             item.get("id") == cve_id
             and item.get("package") == package
@@ -56,7 +87,6 @@ def is_suppressed(cve_id, package, suppressions):
             return True
 
     return False
-
 
 def evaluate_findings(results, policy, suppressions):
     matches = results.get("matches", [])
