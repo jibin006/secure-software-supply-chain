@@ -1,0 +1,12 @@
+suppressions:
+  - id: CVE-2026-5450
+    package: libc6
+    justification: "No vendor fix available"
+    approved_by: "platform-security"
+    expires: "2026-12-31"
+
+  - id: CVE-2026-48962
+    package: perl-base
+    justification: "Container runtime package not reachable by application"
+    approved_by: "platform-security"
+    expires: "2026-12-31"
