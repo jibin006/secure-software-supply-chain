@@ -14,6 +14,7 @@ SUPPRESSED_PACKAGES = {
     "ncurses-bin",
     "liblzma5",
     "libbz2-1.0",
+    "libsqlite3-0",
     "bsdutils",
     "libblkid1",
     "liblastlog2-2",
