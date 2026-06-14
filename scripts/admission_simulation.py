@@ -59,8 +59,8 @@ def admission_decision(deployment_request: dict, signed_images: list) -> dict:
 
 # Simulate signed image registry
 SIGNED_IMAGES = [
-    "ghcr.io/yourorg/supply-chain-demo:abc123",
-    "ghcr.io/yourorg/api-service:def456"
+    "ghcr.io/jibin006/supply-chain-demo:abc123",
+    "ghcr.io/jibin006/api-service:def456"
 ]
 
 # Test scenarios
@@ -68,21 +68,21 @@ scenarios = [
     {
         "name": "Scenario 1: Signed image to production",
         "request": {
-            "image": "ghcr.io/yourorg/supply-chain-demo:abc123",
+            "image": "ghcr.io/jibin006/supply-chain-demo:abc123",
             "namespace": "production"
         }
     },
     {
         "name": "Scenario 2: Unsigned image to production",
         "request": {
-            "image": "ghcr.io/yourorg/supply-chain-demo:latest",
+            "image": "ghcr.io/jibin006/supply-chain-demo:latest",
             "namespace": "production"
         }
     },
     {
         "name": "Scenario 3: Unsigned image to development",
         "request": {
-            "image": "ghcr.io/yourorg/supply-chain-demo:dev-branch",
+            "image": "ghcr.io/jibin006/supply-chain-demo:dev-branch",
             "namespace": "development"
         }
     }
