@@ -1,0 +1,25 @@
+# Sigstore Policy Controller - ClusterImagePolicy
+# Enforces that only signed images can be deployed to production
+
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: supply-chain-policy
+  annotations:
+    description: "Require all production images to be signed via Cosign keyless"
+    owner: "platform-security-team"
+    standard: "supply-chain-security-v1"
+spec:
+  images:
+    # Apply to all images in production namespace
+    - glob: "ghcr.io/yourorg/**"
+  
+  authorities:
+    - name: github-actions-keyless
+      keyless:
+        url: https://fulcio.sigstore.dev
+        identities:
+          - issuer: https://token.actions.githubusercontent.com
+            subjectRegExp: "https://github.com/yourorg/.*"
+      ctlog:
+        url: https://rekor.sigstore.dev

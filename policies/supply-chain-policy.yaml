@@ -1,0 +1,35 @@
+# Supply Chain Security Policy
+# Defines what passes and what blocks production deployment
+
+policy_version: "1.0"
+policy_name: "supply-chain-security"
+owner: "platform-security-team"
+
+gate:
+  # These severities block the build and prevent deployment
+  block_on:
+    - Critical
+    - High
+  
+  # These severities generate warnings but do not block
+  warn_on:
+    - Medium
+  
+  # These are recorded but do not affect build decision
+  inform_on:
+    - Low
+    - Negligible
+
+signing:
+  # Production deployments require signed images
+  require_signed: true
+  
+  # Images must pass vulnerability gate before signing
+  require_clean_scan: true
+
+sbom:
+  # SBOM must be generated and attested
+  require_sbom: true
+  formats:
+    - cyclonedx-json
+    - spdx-json
