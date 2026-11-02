@@ -2,9 +2,9 @@ name: Supply Chain Security Pipeline
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
-    branches: ["main"]
+    branches: [main]
 
 env:
   IMAGE_NAME: supply-chain-demo
@@ -12,17 +12,46 @@ env:
 
 permissions:
   contents: read
-  packages: write
-  id-token: write # Required for Cosign keyless signing
 
 jobs:
-  secure-build:
-    name: Secure Container Build
+  pull-request-validation:
+    name: Pull request validation (read-only)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: python -m pip install pytest pyyaml
+
+      - name: Compile Python
+        run: python -m py_compile scripts/*.py app/app.py
+
+      - name: Test vulnerability gate
+        run: python -m pytest -q tests/
+
+      - name: Check shell scripts
+        run: bash -n scripts/*.sh signing/verify.sh
+
+      - name: Build container without publishing
+        run: docker build --file build/Dockerfile --tag supply-chain-pr:${{ github.sha }} .
+
+  secure-build:
+    name: Secure container build and publish
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     outputs:
       image-digest: ${{ steps.build.outputs.digest }}
-      full-image: ${{ steps.build.outputs.full-image }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,37 +59,35 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Registry
+      - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Image
+      - name: Build and push immutable commit tag
         id: build
         uses: docker/build-push-action@v5
         with:
           context: .
           file: build/Dockerfile
           push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
 
-      - name: Display Image Digest
-        run: |
-          echo "[BUILD] Image digest: ${{ steps.build.outputs.digest }}"
-          echo "[BUILD] Digest pinning prevents tag mutation attacks"
+      - name: Display image digest
+        run: echo "Built image digest: ${{ steps.build.outputs.digest }}"
 
   generate-sbom:
-    name: SBOM Generation
+    name: SBOM generation
     runs-on: ubuntu-latest
     needs: [secure-build]
-
+    permissions:
+      contents: read
+      packages: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -76,21 +103,21 @@ jobs:
         run: |
           curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
 
-      - name: Generate SBOM
+      - name: Generate SBOM from immutable digest
+        env:
+          IMAGE_DIGEST: ${{ needs.secure-build.outputs.image-digest }}
         run: |
           mkdir -p sbom
-          syft ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+          IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${IMAGE_DIGEST}"
+          syft "$IMAGE_REF" \
             --output cyclonedx-json=sbom/sbom.cyclonedx.json \
             --output spdx-json=sbom/sbom.spdx.json
-
-          echo "[SBOM] Components:"
-          python3 - <<EOF
+          python3 - <<'PY'
           import json
-          with open("sbom/sbom.cyclonedx.json") as f:
-              data = json.load(f)
-          components = data.get("components", [])
-          print(f" Total: {len(components)}")
-          EOF
+          with open("sbom/sbom.cyclonedx.json", encoding="utf-8") as handle:
+              data = json.load(handle)
+          print(f"SBOM components: {len(data.get('components', []))}")
+          PY
 
       - name: Upload SBOM
         uses: actions/upload-artifact@v4
@@ -98,16 +125,12 @@ jobs:
           name: sbom
           path: sbom/
 
-      - name: Check SQLite Package
-        run: |
-         jq '.components[] | select(.name | contains("sqlite"))' \
-          sbom/sbom.cyclonedx.json  
-
   vulnerability-scan:
-    name: Vulnerability Scan and Gate
+    name: Vulnerability scan and policy gate
     runs-on: ubuntu-latest
     needs: [generate-sbom]
-
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -122,8 +145,8 @@ jobs:
         run: |
           curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
 
-      - name: Install Python dependencies
-        run: pip install pyyaml
+      - name: Install gate dependencies
+        run: python -m pip install pyyaml
 
       - name: Scan SBOM
         run: |
@@ -132,13 +155,10 @@ jobs:
             --output json \
             --file scan-results/grype-results.json
 
-          grype sbom:sbom/sbom.cyclonedx.json \
-            --output table
+      - name: Apply severity and suppression policy
+        run: python scripts/gate.py
 
-      - name: Apply Severity Gate
-        run: python3 scripts/gate.py
-
-      - name: Upload Scan Results
+      - name: Upload scan decision and evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -146,11 +166,13 @@ jobs:
           path: scan-results/
 
   sign-image:
-    name: Sign Image
+    name: Sign and verify immutable image
     runs-on: ubuntu-latest
-    needs: [vulnerability-scan]
-    if: github.ref == 'refs/heads/main'
-
+    needs: [secure-build, vulnerability-scan]
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -164,49 +186,37 @@ jobs:
           name: sbom
           path: sbom/
 
-      - name: Log in to Registry
+      - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Sign Image
+      - name: Sign image digest
+        env:
+          IMAGE_DIGEST: ${{ needs.secure-build.outputs.image-digest }}
         run: |
-          cosign sign --yes \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-
-          echo "[SIGN] Image signed with keyless OIDC"
-          echo "[SIGN] Identity: GitHub Actions"
-          echo "[SIGN] Transparency log: Rekor"
-
-      - name: Attach SBOM Attestation
-        run: |
+          IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${IMAGE_DIGEST}"
+          cosign sign --yes "$IMAGE_REF"
           cosign attest --yes \
             --predicate sbom/sbom.cyclonedx.json \
             --type cyclonedx \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-
-          echo "[SIGN] SBOM attached as attestation"
-
-      - name: Verify Signature
-        run: |
+            "$IMAGE_REF"
           cosign verify \
             --certificate-identity-regexp="https://github.com/${{ github.repository }}.*" \
             --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-
-          echo "[VERIFY] Signature verification successful"
+            "$IMAGE_REF"
 
   admission-simulation:
-    name: Admission Control Simulation
+    name: Admission control simulation
     runs-on: ubuntu-latest
     needs: [sign-image]
-    if: always()
-
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run Admission Simulation
-        run: python3 scripts/admission_simulation.py
+      - name: Run admission simulation
+        run: python scripts/admission_simulation.py

@@ -79,7 +79,7 @@ Example:
 [GATE] 8 Critical/High findings block this build
 ```
 
-### 5. Risk Acceptance & Suppressions
+### 5. Risk Acceptance & CVE-Specific Suppressions
 
 Implemented suppression management with:
 
@@ -154,7 +154,7 @@ secure-software-supply-chain/
 │   └── verify.sh
 │
 └── .github/workflows/
-    └── supply-chain.yml
+    └── supply-chbain.yml
 ```
 
 ---

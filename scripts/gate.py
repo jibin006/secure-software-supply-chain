@@ -3,30 +3,6 @@ import sys
 from datetime import date, datetime
 import yaml
 
-SUPPRESSED_PACKAGES = {
-    "python",
-    "libc6",
-    "libc-bin",
-    "perl-base",
-    "libncursesw6",
-    "libtinfo6",
-    "ncurses-base",
-    "ncurses-bin",
-    "liblzma5",
-    "libbz2-1.0",
-    "libsqlite3-0",
-    "bsdutils",
-    "libblkid1",
-    "liblastlog2-2",
-    "libmount1",
-    "libsmartcols1",
-    "libuuid1",
-    "login",
-    "mount",
-    "util-linux",
-    "tar",
-    "zlib1g"
-}
 
 
 def load_scan_results(filepath):
@@ -35,57 +11,67 @@ def load_scan_results(filepath):
 
 
 def load_policy(filepath="policies/supply-chain-policy.yaml"):
-    with open(filepath) as f:
-        return yaml.safe_load(f)
+    with open(filepath, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+
+    if not isinstance(data, dict) or not isinstance(data.get("gate"), dict):
+        raise ValueError("Supply-chain policy must contain a gate mapping")
+
+    gate = data["gate"]
+    for key in ("block_on", "warn_on"):
+        if not isinstance(gate.get(key), list):
+            raise ValueError(f"Policy gate.{key} must be a list")
+    return data
 
 
 def load_suppressions(filepath="policies/suppressions.yaml"):
     try:
-        with open(filepath) as f:
+        with open(filepath, encoding="utf-8") as f:
             data = yaml.safe_load(f)
-            return data.get("suppressions", [])
     except FileNotFoundError:
         return []
 
+    if not isinstance(data, dict) or not isinstance(data.get("suppressions", []), list):
+        raise ValueError("Suppression file must contain a suppressions list")
+
+    required = ("id", "package", "justification", "approved_by", "expires")
+    for index, item in enumerate(data.get("suppressions", [])):
+        if not isinstance(item, dict):
+            raise ValueError(f"Suppression entry {index} must be a mapping")
+        missing = [field for field in required if not item.get(field)]
+        if missing:
+            raise ValueError(f"Suppression entry {index} is missing required fields: {missing}")
+        try:
+            datetime.strptime(item["expires"], "%Y-%m-%d")
+        except ValueError as exc:
+            raise ValueError(
+                f"Suppression entry {index} has invalid expires date; expected YYYY-MM-DD"
+            ) from exc
+    return data.get("suppressions", [])
+
 
 def is_suppressed(cve_id, package, suppressions):
-
-    # Package-level suppression
-    if package in SUPPRESSED_PACKAGES:
-        return True
-
-    # Explicit CVE suppressions
+    """Only an exact CVE + package + unexpired approval can suppress a finding."""
     for item in suppressions:
+        if item.get("id") != cve_id or item.get("package") != package:
+            continue
 
-        if (
-            item.get("id") == cve_id
-            and item.get("package") == package
-        ):
+        expiry = item.get("expires")
+        if not expiry:
+            print(f"[SUPPRESSION] REJECTED: {cve_id} ({package}) has no expiry")
+            return False
 
-            expiry = item.get("expires")
+        try:
+            expiry_date = datetime.strptime(expiry, "%Y-%m-%d").date()
+        except ValueError:
+            print(f"[SUPPRESSION] REJECTED: invalid expiry for {cve_id} ({package})")
+            return False
 
-            if expiry:
-                try:
-                    expiry_date = datetime.strptime(
-                        expiry,
-                        "%Y-%m-%d"
-                    ).date()
+        if expiry_date < date.today():
+            print(f"[SUPPRESSION] EXPIRED: {cve_id} ({package})")
+            return False
 
-                    if expiry_date < date.today():
-                        print(
-                            f"[SUPPRESSION] EXPIRED: "
-                            f"{cve_id} ({package})"
-                        )
-                        return False
-
-                except ValueError:
-                    print(
-                        f"[SUPPRESSION] Invalid expiry "
-                        f"date for {cve_id}"
-                    )
-                    return False
-
-            return True
+        return True
 
     return False
 
@@ -109,13 +95,15 @@ def evaluate_findings(results, policy, suppressions):
 
     block_severities = (
         policy.get("gate", {})
-        .get("block_on", ["Critical", "High"])
+        .get("block_on", ["Critical", "High", "Unknown"])
     )
 
     warn_severities = (
         policy.get("gate", {})
         .get("warn_on", ["Medium"])
     )
+    # Unknown/unmapped severities must never become an implicit pass.
+    block_severities = set(block_severities) | {"Unknown"}
 
     for match in matches:
 
@@ -259,90 +247,54 @@ def print_summary(
             print()
 
 
-# Main
 
-try:
+
+def main():
     policy = load_policy()
-except Exception:
-    policy = {
-        "gate": {
-            "block_on": [
-                "Critical",
-                "High"
-            ],
-            "warn_on": [
-                "Medium"
-            ]
-        }
+    suppressions = load_suppressions()
+
+    results = load_scan_results("scan-results/grype-results.json")
+
+    (
+        severity_counts,
+        blocking,
+        warnings,
+        suppressed_count,
+        active_count
+    ) = evaluate_findings(results, policy, suppressions)
+
+    print_summary(
+        severity_counts,
+        blocking,
+        warnings,
+        suppressed_count,
+        active_count
+    )
+
+    output = {
+        "scan_date": str(date.today()),
+        "severity_summary": severity_counts,
+        "suppressed_findings": suppressed_count,
+        "active_findings": active_count,
+        "blocking_count": len(blocking),
+        "warning_count": len(warnings),
+        "gate_decision": "FAIL" if blocking else "PASS",
+        "blocking_findings": blocking,
+        "warning_findings": warnings
     }
 
-suppressions = load_suppressions()
+    with open("scan-results/gate-decision.json", "w", encoding="utf-8") as f:
+        json.dump(output, f, indent=2)
 
-results = load_scan_results(
-    "scan-results/grype-results.json"
-)
+    if blocking:
+        print("\\n[GATE] Decision: FAIL")
+        print(f"[GATE] {len(blocking)} Critical/High/Unknown finding(s) block this build")
+        print("[GATE] Fix vulnerabilities or add an approved, CVE-specific suppression")
+        sys.exit(1)
 
-(
-    severity_counts,
-    blocking,
-    warnings,
-    suppressed_count,
-    active_count
-) = evaluate_findings(
-    results,
-    policy,
-    suppressions
-)
+    print("\\n[GATE] Decision: PASS")
+    print("[GATE] No blocking vulnerabilities detected")
 
-print_summary(
-    severity_counts,
-    blocking,
-    warnings,
-    suppressed_count,
-    active_count
-)
 
-output = {
-    "scan_date": str(date.today()),
-    "severity_summary": severity_counts,
-    "suppressed_findings": suppressed_count,
-    "active_findings": active_count,
-    "blocking_count": len(blocking),
-    "warning_count": len(warnings),
-    "gate_decision": (
-        "FAIL"
-        if blocking
-        else "PASS"
-    ),
-    "blocking_findings": blocking,
-    "warning_findings": warnings
-}
-
-with open(
-    "scan-results/gate-decision.json",
-    "w"
-) as f:
-    json.dump(output, f, indent=2)
-
-if blocking:
-
-    print("\n[GATE] Decision: FAIL")
-
-    print(
-        f"[GATE] "
-        f"{len(blocking)} Critical/High "
-        f"finding(s) block this build"
-    )
-
-    print(
-        "[GATE] Fix vulnerabilities "
-        "or add approved suppression"
-    )
-
-    sys.exit(1)
-
-print("\n[GATE] Decision: PASS")
-print(
-    "[GATE] No blocking "
-    "vulnerabilities detected"
-)
+if __name__ == "__main__":
+    main()
