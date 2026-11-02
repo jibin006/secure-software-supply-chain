@@ -154,7 +154,7 @@ secure-software-supply-chain/
 │   └── verify.sh
 │
 └── .github/workflows/
-    └── supply-chain.yml
+    └── supply-chbain.yml
 ```
 
 ---
